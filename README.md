@@ -142,9 +142,10 @@ select cron.schedule('innovai-subscriptions', '17 6 * * *', $$ select public.ref
 
 ```
 supabase/
-  migrations/      schema, RLS, motor de reservas, realtime/storage, RPCs, fila de notificações
-  functions/       notification-dispatcher (Edge Function)
-  tests/           suíte SQL + teste de concorrência + runner local
+  migrations/      01 schema · 02 segurança (RLS) · 03 motor de reservas · 04 API (RPCs)
+                   05 SaaS comercial · 06 fila de notificações · 07 realtime/storage · 08 privilégios
+  functions/       notification-dispatcher, billing-webhook (Edge Functions)
+  tests/           suítes SQL (MVP, restaurante, profissionais, SaaS) + concorrência + runner local
 src/
   api/             acesso a dados (Supabase + React Query), um arquivo por domínio
   components/      UI (design system), layout (AppShell), reservas (form/detalhe)

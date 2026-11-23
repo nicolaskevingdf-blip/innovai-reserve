@@ -1,5 +1,5 @@
 -- =====================================================================
--- INNOVAI RESERVE — Authorization helpers + Row Level Security
+-- INNOVAI RESERVE — 02 · Authorization helpers, Row Level Security, guards
 -- Principle: the browser only ever talks to Postgres through RLS.
 -- Anonymous visitors have NO table access; they use a narrow set of
 -- SECURITY DEFINER RPCs (public booking) that validate everything.
@@ -113,15 +113,21 @@ create policy members_read on public.tenant_members for select to authenticated
   using (public.is_member(tenant_id));
 create policy members_insert on public.tenant_members for insert to authenticated
   with check (public.can_manage(tenant_id) and (role <> 'owner' or public.is_owner(tenant_id)));
+-- only owners can touch owner rows (a manager cannot demote or remove the owner)
 create policy members_update on public.tenant_members for update to authenticated
-  using (public.can_manage(tenant_id))
+  using (public.can_manage(tenant_id) and (role <> 'owner' or public.is_owner(tenant_id)))
   with check (public.can_manage(tenant_id) and (role <> 'owner' or public.is_owner(tenant_id)));
 create policy members_delete on public.tenant_members for delete to authenticated
-  using (public.can_manage(tenant_id));
+  using (public.can_manage(tenant_id) and (role <> 'owner' or public.is_owner(tenant_id)));
 
--- invitations
+-- invitations (owner invitations only from Innovai admins: admin-created tenants)
 create policy invitations_manage on public.tenant_invitations for all to authenticated
-  using (public.is_manager(tenant_id)) with check (public.can_manage(tenant_id));
+  using (public.is_manager(tenant_id))
+  with check (public.can_manage(tenant_id) and (role <> 'owner' or public.is_platform_admin()));
+
+-- Innovai-only notes
+create policy tenant_admin_notes_admin on public.tenant_admin_notes for all to authenticated
+  using (public.is_platform_admin()) with check (public.is_platform_admin());
 
 -- configuration tables: members read, managers write
 create policy booking_settings_read on public.booking_settings for select to authenticated using (public.is_member(tenant_id));
@@ -135,7 +141,7 @@ create policy notification_settings_write on public.notification_settings for up
 do $$
 declare t text;
 begin
-  foreach t in array array['business_hours', 'areas', 'dining_tables', 'staff', 'staff_hours', 'services', 'service_staff'] loop
+  foreach t in array array['business_hours', 'areas', 'dining_tables', 'table_combinations', 'staff', 'staff_hours', 'services', 'service_staff'] loop
     execute format('create policy %1$s_read on public.%1$s for select to authenticated using (public.is_member(tenant_id))', t);
     execute format('create policy %1$s_insert on public.%1$s for insert to authenticated with check (public.can_manage(tenant_id))', t);
     execute format('create policy %1$s_update on public.%1$s for update to authenticated using (public.can_manage(tenant_id)) with check (public.can_manage(tenant_id))', t);
@@ -155,8 +161,9 @@ begin
   end loop;
 end $$;
 
--- history & logs: read-only for clients (written by triggers)
+-- history, occupancy & logs: read-only for clients (written by triggers)
 create policy reservation_events_read on public.reservation_events for select to authenticated using (public.is_member(tenant_id));
+create policy reservation_tables_read on public.reservation_tables for select to authenticated using (public.is_member(tenant_id));
 create policy audit_logs_read on public.audit_logs for select to authenticated using (public.is_manager(tenant_id));
 
 -- notifications: members read and can mark in-app items as read
@@ -165,6 +172,18 @@ create policy notifications_mark_read on public.notifications for update to auth
   using (public.is_member(tenant_id) and channel = 'in_app')
   with check (public.is_member(tenant_id) and channel = 'in_app');
 
+-- support: members of the establishment + Innovai admins
+create policy tickets_read on public.support_tickets for select to authenticated using (public.is_member(tenant_id));
+create policy tickets_insert on public.support_tickets for insert to authenticated
+  with check (public.is_member(tenant_id) and created_by = auth.uid());
+create policy tickets_update on public.support_tickets for update to authenticated
+  using (public.is_member(tenant_id)) with check (public.is_member(tenant_id));
+create policy messages_read on public.support_messages for select to authenticated
+  using (exists (select 1 from public.support_tickets t where t.id = ticket_id and public.is_member(t.tenant_id)));
+create policy messages_insert on public.support_messages for insert to authenticated
+  with check (author_id = auth.uid()
+              and exists (select 1 from public.support_tickets t where t.id = ticket_id and public.is_member(t.tenant_id)));
+
 -- ---------------------------------------------------------------------
 -- Column-level protection: tenants cannot change their own commercial
 -- status / plan; only Innovai admins can.
@@ -172,9 +191,12 @@ create policy notifications_mark_read on public.notifications for update to auth
 create or replace function public.tenants_guard() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
-  if auth.uid() is not null and not public.is_platform_admin() then
-    if new.status is distinct from old.status or new.plan_id is distinct from old.plan_id then
-      raise exception 'Somente a Innovai pode alterar status ou plano.' using errcode = '42501';
+  if auth.uid() is not null and not public.is_platform_admin()
+     and coalesce(current_setting('app.plan_bypass', true), '') <> 'on' then
+    if new.status is distinct from old.status or new.plan_id is distinct from old.plan_id
+       or new.feature_overrides is distinct from old.feature_overrides
+       or new.custom_domain is distinct from old.custom_domain then
+      raise exception 'Somente a Innovai pode alterar plano, status, funcionalidades ou domínio.' using errcode = '42501';
     end if;
   end if;
   return new;
@@ -229,6 +251,21 @@ create trigger audit_booking_settings after update on public.booking_settings fo
 create trigger audit_members after insert or update or delete on public.tenant_members for each row execute function public.audit_row();
 create trigger audit_business_hours after insert or update or delete on public.business_hours for each row execute function public.audit_row();
 create trigger audit_customers_delete after delete on public.customers for each row execute function public.audit_row();
+
+-- A table with upcoming reservations cannot be deleted (deactivate it instead)
+create or replace function public.dining_tables_guard_delete() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if exists (select 1 from public.tenants where id = old.tenant_id) and exists (
+    select 1 from public.reservation_tables rt
+    where rt.table_id = old.id and rt.active and upper(rt.period) > now()
+  ) then
+    raise exception 'Esta mesa tem reservas futuras. Desative-a ou mova as reservas antes de excluir.' using errcode = 'P0001', hint = 'TABLE_IN_USE';
+  end if;
+  return old;
+end $$;
+create trigger dining_tables_guard_delete before delete on public.dining_tables
+  for each row execute function public.dining_tables_guard_delete();
 
 -- Profile row for every new auth user
 create or replace function public.handle_new_user() returns trigger

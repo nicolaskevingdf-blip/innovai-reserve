@@ -10,8 +10,6 @@ export const STATUS: Record<ReservationStatus, { label: string; chip: string; do
 }
 
 export const STATUS_ORDER: ReservationStatus[] = ['pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'no_show']
-export const ACTIVE_STATUSES: ReservationStatus[] = ['pending', 'confirmed', 'in_progress']
-
 /** allowed manual transitions (keeps the agenda consistent) */
 export const NEXT_STATUS: Record<ReservationStatus, ReservationStatus[]> = {
   pending: ['confirmed', 'cancelled'],

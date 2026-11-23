@@ -20,11 +20,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(data.session)
       setLoading(false)
     })
-    const { data } = supabase.auth.onAuthStateChange((event, s) => {
-      setSession(s)
-      // pending team invitations are attached as soon as the user signs in
-      if (event === 'SIGNED_IN') void supabase.rpc('accept_invitations')
-    })
+    // pending team invitations are accepted by TenantProvider before memberships load
+    const { data } = supabase.auth.onAuthStateChange((_event, s) => setSession(s))
     return () => data.subscription.unsubscribe()
   }, [])
 

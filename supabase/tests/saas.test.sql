@@ -108,5 +108,23 @@ select tests.assert((select status from public.support_tickets where id = :'tk')
 select tests.assert(exists (select 1 from public.notifications where tenant_id = :'pt' and template = 'support_reply'), 'establishment notified of the reply');
 select tests.assert((select is_staff from public.support_messages where ticket_id = :'tk' order by created_at desc limit 1), 'admin reply flagged as staff');
 
+\echo '== Review fixes'
+select public.admin_update_tenant(:'pt', p_internal_notes => 'Cliente negociando desconto');
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-0000-0000-0000-000000000001', false);
+select tests.assert((select count(*) from public.tenant_admin_notes) = 0, 'establishment cannot read Innovai internal notes');
+select tests.assert((select to_jsonb(t) ? 'internal_notes' from public.tenants t where id = :'pt') is false, 'internal notes are not on the tenants row');
+select tests.expect_error(format($$update public.notifications set title = 'x' where tenant_id = %L$$, :'pt'), '42501', 'notifications: only read_at is writable');
+select tests.assert(tests.rows(format($$update public.notifications set read_at = now() where tenant_id = %L and channel = 'in_app'$$, :'pt')) >= 1, 'notifications can be marked read');
+select tests.expect_error(format($$update public.support_tickets set subject = 'x' where id = %L$$, :'tk'), '42501', 'tickets: subject is immutable for customers');
+-- a manager must not demote or remove the owner
+reset role;
+insert into auth.users (id, email) values ('ffffffff-0000-0000-0000-000000000006', 'gerente@casa.test');
+insert into public.tenant_members (tenant_id, user_id, role)
+select id, 'ffffffff-0000-0000-0000-000000000006', 'manager' from public.tenants where slug = 'casa-ana';
+set role authenticated; select set_config('request.jwt.claim.sub', 'ffffffff-0000-0000-0000-000000000006', false);
+select tests.assert(tests.rows($$update public.tenant_members set role = 'staff' where role = 'owner'$$) = 0, 'manager cannot demote the owner');
+select tests.assert(tests.rows($$delete from public.tenant_members where role = 'owner'$$) = 0, 'manager cannot remove the owner');
+select tests.assert(tests.rows($$update public.tenant_members set role = 'manager' where role = 'staff'$$) >= 1, 'manager still manages staff');
+
 reset role;
 \echo 'SAAS SUITE PASSED'

@@ -1,5 +1,5 @@
 -- =====================================================================
--- INNOVAI RESERVE — Core schema (multi-tenant)
+-- INNOVAI RESERVE — 01 · Schema (multi-tenant)
 -- Every business table carries tenant_id. Cross-tenant references are
 -- impossible by construction: child rows use composite foreign keys
 -- (tenant_id, id), so a reservation can never point at a customer,
@@ -124,11 +124,21 @@ create table public.tenants (
   postal_code text,
   country text not null default 'BR',
   plan_id uuid references public.plans (id),
+  -- commercial fields, editable only by Innovai (see tenants_guard)
+  feature_overrides jsonb not null default '{}'::jsonb,   -- {"features": {...}, "limits": {...}}
+  custom_domain text unique check (custom_domain is null or custom_domain ~ '^[a-z0-9.-]+\.[a-z]{2,}$'),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 create trigger tenants_updated_at before update on public.tenants
   for each row execute function public.set_updated_at();
+
+-- Innovai-only notes about a customer (kept out of `tenants`, which members can read)
+create table public.tenant_admin_notes (
+  tenant_id uuid primary key references public.tenants (id) on delete cascade,
+  notes text,
+  updated_at timestamptz not null default now()
+);
 
 create table public.subscriptions (
   id uuid primary key default gen_random_uuid(),
@@ -165,7 +175,7 @@ create table public.tenant_invitations (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants (id) on delete cascade,
   email text not null check (email ~* '^[^@\s]+@[^@\s]+\.[^@\s]+$'),
-  role public.member_role not null default 'staff' check (role <> 'owner'),
+  role public.member_role not null default 'staff', -- 'owner' only via Innovai (RLS)
   invited_by uuid references auth.users (id) on delete set null,
   accepted_at timestamptz,
   created_at timestamptz not null default now()
@@ -194,6 +204,8 @@ create table public.booking_settings (
   allow_online_reschedule boolean not null default true,
   cancellation_min_notice_min integer not null default 120 check (cancellation_min_notice_min >= 0),
   max_active_per_phone integer not null default 3 check (max_active_per_phone between 1 and 50),
+  -- what limits a time slot: general capacity, tables (restaurants) or professionals (services)
+  allocation_mode text not null default 'capacity' check (allocation_mode in ('capacity', 'tables', 'staff')),
   booking_message text check (char_length(booking_message) <= 1000),
   cancellation_policy text check (char_length(cancellation_policy) <= 2000),
   updated_at timestamptz not null default now(),
@@ -266,6 +278,22 @@ create table public.dining_tables (
   check (max_capacity >= min_capacity),
   foreign key (tenant_id, area_id) references public.areas (tenant_id, id) on delete set null (area_id)
 );
+create index dining_tables_tenant_idx on public.dining_tables (tenant_id, is_active);
+create index areas_tenant_idx on public.areas (tenant_id, sort_order);
+
+-- Joined tables for larger groups
+create table public.table_combinations (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants (id) on delete cascade,
+  name text not null,
+  table_ids uuid[] not null check (cardinality(table_ids) between 2 and 12),
+  min_capacity integer not null default 1 check (min_capacity >= 1),
+  max_capacity integer not null check (max_capacity >= 2),
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  check (max_capacity >= min_capacity)
+);
+create index table_combinations_tenant_idx on public.table_combinations (tenant_id);
 
 create table public.staff (
   id uuid primary key default gen_random_uuid(),
@@ -275,11 +303,16 @@ create table public.staff (
   photo_url text,
   specialty text,
   bio text,
+  color text not null default '#C6F432' check (color ~ '^#[0-9A-Fa-f]{6}$'),
   is_active boolean not null default true,
   sort_order integer not null default 0,
   created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   unique (tenant_id, id)
 );
+create unique index staff_member_uniq on public.staff (member_id) where member_id is not null;
+create index staff_tenant_idx on public.staff (tenant_id, is_active, sort_order);
+create trigger staff_updated_at before update on public.staff for each row execute function public.set_updated_at();
 
 create table public.staff_hours (
   id uuid primary key default gen_random_uuid(),
@@ -294,6 +327,7 @@ create table public.staff_hours (
     staff_id with =, weekday with =, tsrange(date '2000-01-01' + opens_at, date '2000-01-01' + closes_at, '[)') with &&
   )
 );
+create index staff_hours_staff_idx on public.staff_hours (staff_id, weekday);
 
 create table public.services (
   id uuid primary key default gen_random_uuid(),
@@ -308,6 +342,7 @@ create table public.services (
   created_at timestamptz not null default now(),
   unique (tenant_id, id)
 );
+create index services_tenant_idx on public.services (tenant_id, is_active, sort_order);
 
 create table public.service_staff (
   tenant_id uuid not null,
@@ -390,8 +425,12 @@ create table public.reservations (
   party_size integer not null default 1 check (party_size between 1 and 500),
   service_id uuid,
   staff_id uuid,
-  table_id uuid,
+  staff_requested boolean not null default false, -- customer chose this professional (vs "any")
+  table_id uuid,                                  -- primary table (= table_ids[1])
+  table_ids uuid[] not null default '{}',         -- all tables (joined tables)
   area_id uuid,
+  -- end of the professional's protected window (service + clean-up interval)
+  occupied_until timestamptz,
   status public.reservation_status not null default 'pending',
   source public.reservation_source not null default 'manual',
   notes text check (char_length(notes) <= 1000),
@@ -413,13 +452,11 @@ create table public.reservations (
   foreign key (tenant_id, staff_id) references public.staff (tenant_id, id) on delete set null (staff_id),
   foreign key (tenant_id, table_id) references public.dining_tables (tenant_id, id) on delete set null (table_id),
   foreign key (tenant_id, area_id) references public.areas (tenant_id, id) on delete set null (area_id),
-  -- Hard guarantees against double booking (enforced by Postgres, race-free):
+  -- Hard guarantees against double booking (enforced by Postgres, race-free).
+  -- Table occupancy is guaranteed on reservation_tables (supports joined tables).
   constraint reservations_no_staff_overlap exclude using gist (
-    staff_id with =, period with &&
+    staff_id with =, tstzrange(starts_at, coalesce(occupied_until, ends_at), '[)') with &&
   ) where (staff_id is not null and status in ('pending', 'confirmed', 'in_progress')),
-  constraint reservations_no_table_overlap exclude using gist (
-    table_id with =, period with &&
-  ) where (table_id is not null and status in ('pending', 'confirmed', 'in_progress')),
   constraint reservations_no_duplicate_customer exclude using gist (
     tenant_id with =, customer_phone_normalized with =, period with &&
   ) where (status in ('pending', 'confirmed', 'in_progress'))
@@ -428,6 +465,7 @@ create index reservations_tenant_start_idx on public.reservations (tenant_id, st
 create index reservations_tenant_status_idx on public.reservations (tenant_id, status);
 create index reservations_customer_idx on public.reservations (customer_id);
 create index reservations_period_idx on public.reservations using gist (tenant_id, period);
+create index reservations_tenant_created_idx on public.reservations (tenant_id, created_at);
 create trigger reservations_updated_at before update on public.reservations
   for each row execute function public.set_updated_at();
 
@@ -445,20 +483,40 @@ create table public.reservation_events (
 );
 create index reservation_events_resv_idx on public.reservation_events (reservation_id, created_at);
 
+-- One row per reservation × table; the period includes the clean-up interval.
+create table public.reservation_tables (
+  reservation_id uuid not null references public.reservations (id) on delete cascade,
+  tenant_id uuid not null,
+  table_id uuid not null,
+  period tstzrange not null,
+  active boolean not null default true,
+  primary key (reservation_id, table_id),
+  foreign key (tenant_id, table_id) references public.dining_tables (tenant_id, id) on delete cascade,
+  constraint reservation_tables_no_overlap exclude using gist (table_id with =, period with &&) where (active)
+);
+create index reservation_tables_tenant_idx on public.reservation_tables using gist (tenant_id, period);
+
 -- Waitlist (Phase 2 — prepared)
 create table public.waitlist_entries (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants (id) on delete cascade,
   customer_name text not null,
   customer_phone text not null,
+  customer_phone_normalized text,
+  customer_email text,
+  area_id uuid,
+  source public.reservation_source not null default 'manual',
+  notified_at timestamptz,
   desired_date date not null,
   desired_time time,
   party_size integer not null default 1 check (party_size >= 1),
   notes text,
   status text not null default 'waiting' check (status in ('waiting', 'notified', 'converted', 'expired', 'cancelled')),
   reservation_id uuid references public.reservations (id) on delete set null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  foreign key (tenant_id, area_id) references public.areas (tenant_id, id) on delete set null (area_id)
 );
+create index waitlist_tenant_date_idx on public.waitlist_entries (tenant_id, desired_date, status);
 
 -- ---------------------------------------------------------------------
 -- Notifications outbox + audit log
@@ -497,6 +555,63 @@ create table public.audit_logs (
   created_at timestamptz not null default now()
 );
 create index audit_logs_tenant_idx on public.audit_logs (tenant_id, created_at desc);
+
+-- ---------------------------------------------------------------------
+-- Support (establishments ↔ Innovai)
+-- ---------------------------------------------------------------------
+create table public.support_tickets (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants (id) on delete cascade,
+  created_by uuid references auth.users (id) on delete set null,
+  subject text not null check (char_length(subject) between 3 and 160),
+  category text not null default 'question' check (category in ('question', 'bug', 'billing', 'upgrade', 'feature')),
+  status text not null default 'open' check (status in ('open', 'answered', 'waiting', 'closed')),
+  priority text not null default 'normal' check (priority in ('low', 'normal', 'high')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index support_tickets_tenant_idx on public.support_tickets (tenant_id, updated_at desc);
+create index support_tickets_status_idx on public.support_tickets (status, updated_at desc);
+
+create table public.support_messages (
+  id uuid primary key default gen_random_uuid(),
+  ticket_id uuid not null references public.support_tickets (id) on delete cascade,
+  author_id uuid references auth.users (id) on delete set null,
+  is_staff boolean not null default false, -- set by the database (only Innovai admins)
+  body text not null check (char_length(body) between 1 and 5000),
+  created_at timestamptz not null default now()
+);
+create index support_messages_ticket_idx on public.support_messages (ticket_id, created_at);
+
+-- ---------------------------------------------------------------------
+-- Normalisation / validation triggers
+-- ---------------------------------------------------------------------
+create or replace function public.waitlist_normalize() returns trigger
+language plpgsql as $$
+begin
+  new.customer_name := btrim(new.customer_name);
+  new.customer_phone_normalized := public.normalize_phone(new.customer_phone);
+  new.customer_email := nullif(lower(btrim(new.customer_email)), '');
+  return new;
+end $$;
+create trigger waitlist_normalize before insert or update of customer_phone, customer_name, customer_email on public.waitlist_entries
+  for each row execute function public.waitlist_normalize();
+
+create or replace function public.table_combinations_validate() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  new.table_ids := array(select u.x from unnest(new.table_ids) with ordinality u(x, o) where u.x is not null group by u.x order by min(u.o));
+  if exists (select 1 from unnest(new.table_ids) x(id)
+             where not exists (select 1 from public.dining_tables t where t.id = x.id and t.tenant_id = new.tenant_id)) then
+    raise exception 'A união contém mesas de outro estabelecimento ou inexistentes.' using errcode = '42501';
+  end if;
+  if cardinality(new.table_ids) < 2 then
+    raise exception 'Selecione ao menos duas mesas para unir.' using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+create trigger table_combinations_validate before insert or update on public.table_combinations
+  for each row execute function public.table_combinations_validate();
 
 -- ---------------------------------------------------------------------
 -- Seed plans

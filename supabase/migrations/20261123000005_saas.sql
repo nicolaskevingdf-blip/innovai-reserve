@@ -1,47 +1,12 @@
 -- =====================================================================
--- INNOVAI RESERVE — Phase 4: commercial SaaS
+-- INNOVAI RESERVE — 05 · Commercial SaaS
 --  * plan limits & feature flags enforced in the database
---  * per-tenant feature overrides and custom domain (personalisation)
 --  * subscription lifecycle (trial → past_due → suspended)
---  * Innovai admin panel RPCs (tenants, plans, subscriptions, metrics)
---  * support tickets between establishments and Innovai
+--  * Innovai admin panel RPCs, support tickets
 -- =====================================================================
 
-alter table public.tenants
-  add column feature_overrides jsonb not null default '{}'::jsonb,
-  add column custom_domain text unique check (custom_domain is null or custom_domain ~ '^[a-z0-9.-]+\.[a-z]{2,}$'),
-  add column internal_notes text;
-
-create index reservations_tenant_created_idx on public.reservations (tenant_id, created_at);
-
--- Owner invitations are allowed only for Innovai admins (admin-created tenants)
-alter table public.tenant_invitations drop constraint tenant_invitations_role_check;
-drop policy invitations_manage on public.tenant_invitations;
-create policy invitations_manage on public.tenant_invitations for all to authenticated
-  using (public.is_manager(tenant_id))
-  with check (public.can_manage(tenant_id) and (role <> 'owner' or public.is_platform_admin()));
-
--- tenants_guard: plan, status, overrides and domain are commercial fields (Innovai only)
-create or replace function public.tenants_guard() returns trigger
-language plpgsql security definer set search_path = public as $$
-begin
-  if auth.uid() is not null and not public.is_platform_admin()
-     and coalesce(current_setting('app.plan_bypass', true), '') <> 'on' then
-    if new.status is distinct from old.status or new.plan_id is distinct from old.plan_id
-       or new.feature_overrides is distinct from old.feature_overrides
-       or new.custom_domain is distinct from old.custom_domain
-       or new.internal_notes is distinct from old.internal_notes then
-      raise exception 'Somente a Innovai pode alterar plano, status, funcionalidades ou domínio.' using errcode = '42501';
-    end if;
-  end if;
-  return new;
-end $$;
-
--- Tenants must not read Innovai's internal notes: expose a safe view to members
--- (RLS on tenants still applies; the column is simply never selected by the app)
-
 -- ---------------------------------------------------------------------
--- Plans: effective features / limits / usage
+-- Effective plan: plan defaults + per-tenant overrides set by Innovai
 -- ---------------------------------------------------------------------
 create or replace function public.tenant_features(p_tenant uuid) returns jsonb
 language sql stable security definer set search_path = public as $$
@@ -111,7 +76,7 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
--- Enforcement triggers (bypassed by Innovai admins and by system jobs)
+-- Enforcement (bypassed by Innovai admins and by system jobs)
 -- ---------------------------------------------------------------------
 create or replace function public._plan_bypass() returns boolean
 language sql stable security definer set search_path = public as $$
@@ -173,6 +138,7 @@ language plpgsql security definer set search_path = public as $$
 declare v_limit int := public._limit(new.tenant_id, 'max_reservations_month');
 begin
   if public._plan_bypass() then return new; end if;
+  perform public._lock_tenant_agenda(new.tenant_id); -- count under the same lock as the agenda
   if new.source = 'online' and not public.subscription_ok(new.tenant_id) then
     raise exception 'Este estabelecimento não está aceitando reservas online no momento.' using errcode = 'P0001', hint = 'BOOKING_DISABLED';
   end if;
@@ -182,7 +148,7 @@ begin
   end if;
   return new;
 end $$;
--- "aa_" prefix: runs before reservations_before_write (alphabetical order of BEFORE triggers)
+-- "aa_" prefix: runs before reservations_before_write (BEFORE triggers fire alphabetically)
 create trigger aa_plan_guard_reservations before insert on public.reservations
   for each row execute function public.plan_guard_reservations();
 
@@ -211,19 +177,7 @@ end $$;
 create trigger plan_guard_notification_settings before update on public.notification_settings
   for each row execute function public.plan_guard_notifications();
 
--- New establishments start with a 14-day trial of the Pro plan
-create or replace function public.create_tenant_trial_pro() returns trigger
-language plpgsql security definer set search_path = public as $$
-declare v_pro uuid;
-begin
-  select id into v_pro from public.plans where code = 'pro';
-  if v_pro is not null and new.status = 'trialing' then
-    new.plan_id := v_pro;
-  end if;
-  return new;
-end $$;
-create trigger subscriptions_trial_pro before insert on public.subscriptions
-  for each row execute function public.create_tenant_trial_pro();
+-- tenants.plan_id mirrors the subscription (changed by Innovai or the billing webhook)
 create or replace function public.sync_tenant_plan() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare v_prev text := coalesce(current_setting('app.plan_bypass', true), '');
@@ -259,49 +213,23 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
--- Support tickets
+-- Support
 -- ---------------------------------------------------------------------
-create table public.support_tickets (
-  id uuid primary key default gen_random_uuid(),
-  tenant_id uuid not null references public.tenants (id) on delete cascade,
-  created_by uuid references auth.users (id) on delete set null,
-  subject text not null check (char_length(subject) between 3 and 160),
-  category text not null default 'question' check (category in ('question', 'bug', 'billing', 'upgrade', 'feature')),
-  status text not null default 'open' check (status in ('open', 'answered', 'waiting', 'closed')),
-  priority text not null default 'normal' check (priority in ('low', 'normal', 'high')),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-create index support_tickets_tenant_idx on public.support_tickets (tenant_id, updated_at desc);
-create index support_tickets_status_idx on public.support_tickets (status, updated_at desc);
+-- membership without the admin shortcut (an admin who is also a member writes as customer)
+create or replace function public.is_member_strict(p_tenant uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.tenant_role(p_tenant) is not null
+$$;
 
-create table public.support_messages (
-  id uuid primary key default gen_random_uuid(),
-  ticket_id uuid not null references public.support_tickets (id) on delete cascade,
-  author_id uuid references auth.users (id) on delete set null,
-  is_staff boolean not null default false,
-  body text not null check (char_length(body) between 1 and 5000),
-  created_at timestamptz not null default now()
-);
-create index support_messages_ticket_idx on public.support_messages (ticket_id, created_at);
-
-alter table public.support_tickets enable row level security;
-alter table public.support_messages enable row level security;
-revoke all on public.support_tickets, public.support_messages from anon;
-grant select, insert, update on public.support_tickets to authenticated;
-grant select, insert on public.support_messages to authenticated;
-
-create policy tickets_read on public.support_tickets for select to authenticated
-  using (public.is_member(tenant_id));
-create policy tickets_insert on public.support_tickets for insert to authenticated
-  with check (public.is_member(tenant_id) and created_by = auth.uid());
-create policy tickets_update on public.support_tickets for update to authenticated
-  using (public.is_member(tenant_id)) with check (public.is_member(tenant_id));
-create policy messages_read on public.support_messages for select to authenticated
-  using (exists (select 1 from public.support_tickets t where t.id = ticket_id and public.is_member(t.tenant_id)));
-create policy messages_insert on public.support_messages for insert to authenticated
-  with check (author_id = auth.uid()
-              and exists (select 1 from public.support_tickets t where t.id = ticket_id and public.is_member(t.tenant_id)));
+-- only Innovai admins post as staff
+create or replace function public.support_message_before() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  new.is_staff := public.is_platform_admin() and not public.is_member_strict((select tenant_id from public.support_tickets where id = new.ticket_id));
+  return new;
+end $$;
+create trigger support_message_before before insert on public.support_messages
+  for each row execute function public.support_message_before();
 
 create or replace function public.support_message_after() returns trigger
 language plpgsql security definer set search_path = public as $$
@@ -320,24 +248,8 @@ end $$;
 create trigger support_message_after after insert on public.support_messages
   for each row execute function public.support_message_after();
 
--- Only Innovai admins can post as staff
-create or replace function public.support_message_before() returns trigger
-language plpgsql security definer set search_path = public as $$
-begin
-  new.is_staff := public.is_platform_admin() and not public.is_member_strict((select tenant_id from public.support_tickets where id = new.ticket_id));
-  return new;
-end $$;
-
--- membership without the admin shortcut (an admin who is also a member writes as customer)
-create or replace function public.is_member_strict(p_tenant uuid) returns boolean
-language sql stable security definer set search_path = public as $$
-  select public.tenant_role(p_tenant) is not null
-$$;
-create trigger support_message_before before insert on public.support_messages
-  for each row execute function public.support_message_before();
-
 -- ---------------------------------------------------------------------
--- Innovai admin RPCs
+-- Innovai admin RPCs (every action is audited)
 -- ---------------------------------------------------------------------
 create or replace function public._require_admin() returns void
 language plpgsql stable security definer set search_path = public as $$
@@ -392,7 +304,8 @@ begin
          (select count(*) from public.reservations r where r.tenant_id = t.id and r.created_at > now() - interval '30 days'),
          (select max(r.created_at) from public.reservations r where r.tenant_id = t.id),
          (select count(*) from public.support_tickets k where k.tenant_id = t.id and k.status in ('open', 'waiting')),
-         t.feature_overrides, t.custom_domain, t.internal_notes
+         t.feature_overrides, t.custom_domain,
+         (select n.notes from public.tenant_admin_notes n where n.tenant_id = t.id)
   from public.tenants t
   left join public.plans p on p.id = t.plan_id
   left join public.subscriptions s on s.tenant_id = t.id
@@ -418,9 +331,12 @@ begin
   update public.tenants set
     status = coalesce(p_status, status),
     feature_overrides = coalesce(p_feature_overrides, feature_overrides),
-    custom_domain = case when p_custom_domain is null then custom_domain else nullif(lower(btrim(p_custom_domain)), '') end,
-    internal_notes = coalesce(p_internal_notes, internal_notes)
+    custom_domain = case when p_custom_domain is null then custom_domain else nullif(lower(btrim(p_custom_domain)), '') end
   where id = p_tenant;
+  if p_internal_notes is not null then
+    insert into public.tenant_admin_notes (tenant_id, notes) values (p_tenant, p_internal_notes)
+    on conflict (tenant_id) do update set notes = excluded.notes, updated_at = now();
+  end if;
   insert into public.subscriptions (tenant_id, plan_id, status)
   values (p_tenant, coalesce(v_plan, (select plan_id from public.tenants where id = p_tenant), (select id from public.plans where code = 'starter')), coalesce(p_subscription_status, 'active'))
   on conflict (tenant_id) do nothing;
@@ -442,7 +358,7 @@ begin
                                                'feature_overrides', p_feature_overrides, 'custom_domain', p_custom_domain)));
 end $$;
 
--- Innovai sells and sets up an establishment for a customer: the owner joins on first login
+-- Innovai sells and sets up an establishment: the owner joins on first login
 create or replace function public.admin_create_tenant(
   p_name text, p_slug text, p_segment public.segment_type, p_owner_email text,
   p_plan_code text default 'pro', p_trial_days integer default 14, p_timezone text default 'America/Sao_Paulo'
@@ -470,7 +386,6 @@ begin
   values (t.id, v_plan, case when p_trial_days > 0 then 'trialing' else 'active' end::public.subscription_status,
           case when p_trial_days > 0 then now() + make_interval(days => p_trial_days) end, now(),
           now() + make_interval(days => greatest(p_trial_days, 30)));
-  update public.subscriptions set plan_id = v_plan where tenant_id = t.id; -- keep chosen plan even during trial
   insert into public.notification_settings (tenant_id) values (t.id);
   if p_segment = 'restaurant' then
     insert into public.booking_settings (tenant_id, slot_interval_min, default_duration_min, max_party_size, max_reservations_per_slot, max_guests_per_slot)
@@ -512,39 +427,4 @@ begin
   from public.support_tickets k join public.tenants t on t.id = k.tenant_id
   where p_status is null or k.status = p_status
   order by case k.status when 'open' then 0 when 'waiting' then 1 when 'answered' then 2 else 3 end, k.updated_at desc;
-end $$;
-
--- ---------------------------------------------------------------------
--- Privileges
--- ---------------------------------------------------------------------
-do $$
-declare f record;
-begin
-  for f in
-    select p.oid::regprocedure as sig from pg_proc p
-    where p.pronamespace = 'public'::regnamespace
-      and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
-      and p.proname in ('tenant_features', 'tenant_limits', 'has_feature', '_limit', '_usage', 'subscription_ok', 'get_plan_usage',
-                        '_plan_bypass', 'plan_guard_members', 'plan_guard_invitations', 'plan_guard_resources', 'plan_guard_reservations', 'plan_guard_settings', 'plan_guard_notifications',
-                        'create_tenant_trial_pro', 'sync_tenant_plan', 'refresh_subscription_states', 'support_message_after',
-                        'support_message_before', 'is_member_strict', '_require_admin', 'admin_overview', 'admin_list_tenants',
-                        'admin_update_tenant', 'admin_create_tenant', 'admin_list_tickets', 'tenants_guard')
-  loop
-    execute format('revoke execute on function %s from public, anon, authenticated', f.sig);
-  end loop;
-end $$;
-
-grant execute on function
-  public.get_plan_usage(uuid), public.admin_overview(), public.admin_list_tenants(text, text),
-  public.admin_update_tenant(uuid, public.tenant_status, text, public.subscription_status, timestamptz, timestamptz, jsonb, text, text),
-  public.admin_create_tenant(text, text, public.segment_type, text, text, integer, text),
-  public.admin_list_tickets(text)
-to authenticated;
-grant execute on function public.refresh_subscription_states() to service_role;
-
-do $$
-begin
-  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    alter publication supabase_realtime add table public.support_messages;
-  end if;
 end $$;

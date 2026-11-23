@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Clock, Minus, Plus, Search, UserRound, AlertTriangle } from 'lucide-react'
 import { Sheet } from '@/components/ui/Sheet'
-import { Button, Field, Input, Select, Spinner, Switch, Textarea } from '@/components/ui/ui'
+import { Button, Field, Input, Select, Spinner, Switch, Textarea, Avatar } from '@/components/ui/ui'
 import { useToast } from '@/components/ui/Toast'
 import { useCurrentTenant } from '@/hooks/useTenant'
 import { useBookingSettings } from '@/api/tenant'
@@ -9,7 +9,6 @@ import { useReservationMutations, useTenantSlots } from '@/api/reservations'
 import { useCustomerSearch } from '@/api/customers'
 import { useAreas, useFreeTables, useTables } from '@/api/floor'
 import { qualifiedStaff, useFreeStaff, useServiceStaff, useServices, useStaff } from '@/api/staff'
-import { Avatar } from '@/components/ui/ui'
 import { errorMessage } from '@/lib/errors'
 import { fmtTime, localDateKey, todayKey, zonedToUtcIso } from '@/lib/datetime'
 import { SEGMENT, SOURCE, newUnit } from '@/lib/constants'
@@ -81,7 +80,7 @@ export function ReservationForm({ open, onClose, prefill, reservation }: {
       setAreaId(reservation.area_id ?? '')
       setTableIds(reservation.table_ids ?? [])
       setServiceId(reservation.service_id ?? '')
-      setStaffId(reservation.staff_requested ? reservation.staff_id ?? '' : reservation.staff_id ?? '')
+      setStaffId(reservation.staff_id ?? '')
     } else {
       setCustomerId(prefill?.customer?.id || null)
       setServiceId('')
@@ -142,7 +141,8 @@ export function ReservationForm({ open, onClose, prefill, reservation }: {
             customer_name: name.trim(), customer_phone: phone, customer_email: email || null, starts_at: startsAt, ends_at: endsAt,
             party_size: party, source, notes: notes || null, internal_notes: internal || null,
             table_ids: tableIds, area_id: areaId || null,
-            service_id: serviceId || null, staff_id: staffId || null, staff_requested: !!staffId,
+            service_id: serviceId || null, staff_id: staffId || null,
+            staff_requested: !!staffId && (staffId !== reservation.staff_id || reservation.staff_requested),
             ...(reservation.status === 'pending' || reservation.status === 'confirmed' ? { status: pending ? 'pending' : 'confirmed' } : {}),
           },
         })

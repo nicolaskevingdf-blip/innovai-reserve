@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate, Link } from 'react-router-dom'
 import {
   Bell, CalendarDays, ChevronsUpDown, CreditCard, ExternalLink, LayoutDashboard, ListChecks, LogOut, Menu, Plus,
   Settings, Users, Armchair, Scissors, BarChart3, Check, UserRound, Sparkles, ListOrdered, LifeBuoy, ShieldCheck, AlertTriangle,
@@ -10,7 +10,6 @@ import { useTenantRealtime } from '@/hooks/useRealtime'
 import { useUnreadCount } from '@/api/notifications'
 import { useWaitlistCount } from '@/api/waitlist'
 import { useIsPlatformAdmin, usePlanUsage } from '@/api/saas'
-import { Link } from 'react-router-dom'
 import { todayKey } from '@/lib/datetime'
 import { useToast } from '@/components/ui/Toast'
 import { Sheet } from '@/components/ui/Sheet'

@@ -35,14 +35,6 @@ export function slugify(v: string) {
 export const formatMoney = (cents: number | null | undefined, currency = 'BRL') =>
   cents == null ? '' : (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency })
 
-export const initials = (name: string) =>
-  name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase())
-    .join('')
-
 export function hexToRgbTriplet(hex: string) {
   const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex)
   if (!m) return '198 244 50'

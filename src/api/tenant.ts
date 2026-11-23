@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
-import type { BookingSettings, BusinessHour, Invitation, MemberRole, NotificationSettings, Plan, Segment, Subscription, TeamMember, Tenant } from '@/types/db'
+import type { BookingSettings, BusinessHour, Invitation, MemberRole, NotificationSettings, Plan, Segment, TeamMember, Tenant } from '@/types/db'
 
 export async function createTenant(input: { name: string; slug: string; segment: Segment; timezone: string; phone?: string }) {
   const { data, error } = await supabase.rpc('create_tenant', {
@@ -168,17 +168,6 @@ export function useTeamMutations(tenantId: string) {
       onSuccess: refresh,
     }),
   }
-}
-
-export function useSubscription(tenantId: string) {
-  return useQuery({
-    queryKey: ['subscription', tenantId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('subscriptions').select('*, plan:plans(*)').eq('tenant_id', tenantId).maybeSingle()
-      if (error) throw error
-      return data as Subscription | null
-    },
-  })
 }
 
 export function usePlans() {

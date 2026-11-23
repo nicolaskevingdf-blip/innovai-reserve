@@ -1,5 +1,5 @@
 -- =====================================================================
--- INNOVAI RESERVE — Realtime + Storage (Supabase specific, guarded so the
+-- INNOVAI RESERVE — 07 · Realtime + Storage (Supabase specific, guarded so the
 -- migration also runs on plain Postgres for local tests)
 -- =====================================================================
 
@@ -11,6 +11,10 @@ begin
     alter publication supabase_realtime add table public.reservations;
     alter publication supabase_realtime add table public.notifications;
     alter publication supabase_realtime add table public.schedule_blocks;
+    alter publication supabase_realtime add table public.waitlist_entries;
+    alter publication supabase_realtime add table public.dining_tables;
+    alter publication supabase_realtime add table public.staff;
+    alter publication supabase_realtime add table public.support_messages;
   end if;
 end $$;
 

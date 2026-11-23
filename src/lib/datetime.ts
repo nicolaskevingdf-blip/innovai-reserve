@@ -12,8 +12,6 @@ export const fmt = (iso: string | Date, tz: string, pattern: string) =>
 export const fmtTime = (iso: string, tz: string) => fmt(iso, tz, 'HH:mm')
 export const fmtDate = (iso: string, tz: string) => fmt(iso, tz, 'dd/MM/yyyy')
 export const fmtDateLong = (iso: string | Date, tz: string) => fmt(iso, tz, "EEEE, d 'de' MMMM")
-export const fmtDateTime = (iso: string, tz: string) => fmt(iso, tz, "dd/MM/yyyy 'às' HH:mm")
-
 /** "yyyy-MM-dd" of an instant in the tenant timezone */
 export const localDateKey = (iso: string | Date, tz: string) => fmt(iso, tz, 'yyyy-MM-dd')
 

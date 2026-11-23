@@ -1,6 +1,7 @@
 -- =====================================================================
--- Notification dispatch support (used by the notification-dispatcher
--- Edge Function with the service_role key — never by browsers).
+-- INNOVAI RESERVE — 06 · Notification dispatch
+-- Used by the notification-dispatcher Edge Function with the service_role
+-- key — never by browsers.
 -- =====================================================================
 
 -- Atomically claims due messages; SKIP LOCKED lets several workers run safely.
@@ -30,7 +31,3 @@ language sql volatile security definer set search_path = public as $$
    where id = p_id
 $$;
 
-revoke execute on function public.claim_due_notifications(integer) from public, anon, authenticated;
-revoke execute on function public.complete_notification(uuid, public.notification_status, text) from public, anon, authenticated;
-grant execute on function public.claim_due_notifications(integer) to service_role;
-grant execute on function public.complete_notification(uuid, public.notification_status, text) to service_role;

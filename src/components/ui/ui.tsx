@@ -186,6 +186,3 @@ export function Avatar({ name, src, size = 36, className }: { name: string; src?
   )
 }
 
-export function Kbd({ children }: { children: ReactNode }) {
-  return <kbd className="rounded-md border border-ink-600 bg-ink-800 px-1.5 py-0.5 font-mono text-[10px] text-ink-300">{children}</kbd>
-}
