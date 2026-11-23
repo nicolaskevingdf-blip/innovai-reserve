@@ -15,6 +15,7 @@ import { useBookingSettings } from '@/api/tenant'
 import { useShell, publicBookingUrl } from '@/components/layout/AppShell'
 import { useToast } from '@/components/ui/Toast'
 import { ReservationDetail, StatusBadge } from '@/components/reservations/ReservationDetail'
+import { InsightCards } from '@/components/intelligence/InsightCards'
 import { dayRangeUtc, fmt, fmtTime, greeting, keyLabel, shiftKey, todayKey, WEEKDAYS_SHORT } from '@/lib/datetime'
 import { SEGMENT, SOURCE, newUnit, noneUnit } from '@/lib/constants'
 import { errorMessage } from '@/lib/errors'
@@ -148,6 +149,9 @@ export default function Dashboard() {
           sub={staffMode ? `${staffList.filter((x) => x.is_active).length} profissional(is) ativo(s)` : tablesMode ? `${tables.filter((t) => t.is_active).length} mesa(s) ativa(s)` : settings?.max_reservations_per_slot ? `Capacidade: ${settings.max_reservations_per_slot} simultâneas` : 'Capacidade ilimitada'}
         />
       </div>
+
+      {/* Recommendations computed from real data */}
+      <InsightCards tenantId={tenant.id} limit={3} compact />
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6">

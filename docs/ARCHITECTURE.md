@@ -50,7 +50,8 @@
 | Salão (Fase 2) | `areas`, `dining_tables`, `table_combinations` |
 | Profissionais (Fase 3) | `staff`, `staff_hours`, `services`, `service_staff` |
 | Operação | `notifications` (inbox interna + outbox externa), `audit_logs` |
-| Comercial (Fase 4) | `plans`, `subscriptions`, `platform_admins`, `support_tickets`, `support_messages` |
+| Comercial (Fase 4) | `plans`, `subscriptions`, `platform_admins`, `support_tickets`, `support_messages`, `tenant_admin_notes` |
+| Inteligência (Fase 5) | `automation_rules`, `platform_settings` |
 
 Todos os instantes são `timestamptz` (UTC). Cada empresa tem `timezone` (IANA) e toda conversão de “dia/hora local” acontece com esse fuso, no banco (`AT TIME ZONE`) e no frontend (`date-fns-tz`) — nunca com o fuso do navegador.
 
@@ -141,14 +142,18 @@ Ativada em *Regras de reserva → Por profissional* (`allocation_mode = 'staff'`
 | **2 — Restaurante** ✅ | Editor visual do salão, ambientes, status por cor, uniões de mesas, alocação automática, lista de espera | Entregue |
 | **3 — Barbearia** ✅ | Profissionais, serviços, agenda individual, “qualquer profissional” | Entregue |
 | **4 — SaaS comercial** ✅ | Painel Innovai, planos/limites, assinaturas, suporte, cobrança | Entregue (cobrança automática depende da conta Stripe) |
-| **5 — Inteligência** | Lembretes WhatsApp, relatórios avançados, IA | Outbox + despachante; `dashboard_metrics`, `customer_insights` |
+| **5 — Inteligência** ✅ | Relatórios avançados, recomendações, automações, assistente de IA | Entregue (IA e envio dependem das chaves externas) |
 
-### Camada de IA (Fase 5) — desenho
-Para responder “Quais foram os horários mais movimentados esta semana?” **sem inventar números**:
-1. O modelo (Claude) recebe apenas **ferramentas** que chamam funções SQL existentes e auditáveis (`dashboard_metrics`, `customer_insights` e novas como `staff_ranking`, `table_occupancy`), executadas com o JWT do usuário — logo, limitadas pela RLS da empresa.
-2. O modelo nunca gera SQL livre nem recebe dados de outras empresas.
-3. A resposta cita os números retornados pelas ferramentas; quando a ferramenta não tem o dado, a resposta diz que o dado não está disponível.
-4. Execução numa Edge Function (`ai-assistant`) com chave da API guardada em secrets e limite de uso por plano (`plans.features.ai_insights`).
+### Inteligência e automação (Fase 5)
+- **Relatórios avançados** (`report_data`, funcionalidade `reports_advanced`): resumo com taxas de cancelamento e falta, média de pessoas, antecedência mediana das reservas online, mapa dia × hora, faltas por dia da semana, motivos de cancelamento, ocupação por mesa (minutos reservados ÷ minutos abertos), métricas por profissional/serviço e clientes novos, recorrentes e frequentes.
+- **Recomendações** (`tenant_insights`, todos os planos): regras determinísticas sobre os últimos 30 dias — tendência contra os 30 anteriores, pico, dia mais vazio, faltas acima de 8%, alta de cancelamentos, clientes sem voltar há 60 dias, baixa participação online. Cada texto traz o número real; com menos de 10 reservas, a função diz que ainda está coletando dados em vez de recomendar algo.
+- **Automações** (`automation_rules`, funcionalidade `automations`): reconquista (sem visita há N dias, no máximo uma mensagem a cada 90 dias) e aniversário (uma vez por ano). Só para clientes com `marketing_opt_in`; nada é enviado se o canal estiver desligado nas notificações. `run_automations()` (pg_cron, diário) põe as mensagens na mesma fila (`notifications`) que o despachante envia; `preview_automation` mostra o público antes de ativar.
+- **Assistente de IA** (`ai-assistant`, funcionalidade `ai_insights`):
+  1. A Edge Function recebe a pergunta com o JWT do usuário e cria o cliente do banco com esse JWT — toda consulta passa pela RLS do estabelecimento.
+  2. Claude (`claude-opus-5-5`, via SDK oficial e *tool runner*) tem apenas seis ferramentas, cada uma ligada a uma função SQL já existente e auditável: `dashboard_metrics`, `report_data`, `staff_service_metrics`, `customer_insights`, `inactive_customers`, `tenant_insights`. O modelo não escreve SQL.
+  3. O prompt exige usar só números vindos das ferramentas, informar o período e dizer quando o dado não existe. A data de hoje e o fuso vão na mensagem do usuário, para não invalidar o cache do prompt de sistema.
+  4. Fallback de recusa do lado do servidor ligado (`fallbacks: "default"`); limite de 8 iterações; erros da API viram mensagens claras (chave ausente/inválida, limite de uso).
+  5. Optou-se pela Messages API com o loop na própria Edge Function, em vez de Managed Agents, porque as ferramentas precisam rodar com o JWT do usuário dentro da infraestrutura do Supabase e as perguntas são curtas; assim nenhuma sessão com dados do estabelecimento fica armazenada fora.
 
 ## 8. Limitações conhecidas da Fase 1
 

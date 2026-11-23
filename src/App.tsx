@@ -21,7 +21,8 @@ const Customers = lazy(() => import('./pages/app/Customers'))
 const Settings = lazy(() => import('./pages/app/Settings'))
 const Notifications = lazy(() => import('./pages/app/Notifications'))
 const Plan = lazy(() => import('./pages/app/Plan'))
-const Roadmap = lazy(() => import('./pages/app/Roadmap'))
+const Reports = lazy(() => import('./pages/app/Reports'))
+const Automations = lazy(() => import('./pages/app/Automations'))
 const Floor = lazy(() => import('./pages/app/Floor'))
 const Waitlist = lazy(() => import('./pages/app/Waitlist'))
 const Services = lazy(() => import('./pages/app/Services'))
@@ -82,7 +83,8 @@ export function App() {
           <Route path="servicos" element={<Services />} />
           <Route path="profissionais" element={<StaffPage />} />
           <Route path="suporte" element={<Support />} />
-          <Route path="modulos/:module" element={<Roadmap />} />
+          <Route path="relatorios" element={<Reports />} />
+          <Route path="automacoes" element={<Automations />} />
         </Route>
         <Route path="/admin" element={<RequireAuth><AdminLayout /></RequireAuth>}>
           <Route index element={<AdminOverview />} />

@@ -484,3 +484,48 @@ export interface SupportMessage {
   body: string
   created_at: string
 }
+
+export interface Insight {
+  key: string
+  tone: 'positive' | 'warning' | 'info'
+  title: string
+  detail: string
+  metric?: number
+  action?: { label: string; to: string }
+}
+
+export interface ReportData {
+  period: { from: string; to: string; timezone: string }
+  summary: {
+    reservations: number
+    attended: number
+    guests: number
+    cancelled: number
+    no_show: number
+    cancel_rate: number | null
+    no_show_rate: number | null
+    avg_party: number | null
+    lead_time_hours_median: number | null
+    online_share: number | null
+  }
+  heatmap: { weekday: number; hour: number; count: number }[]
+  by_source: { source: ReservationSource; count: number }[]
+  no_show_by_weekday: { weekday: number; no_show: number; total: number }[]
+  cancel_reasons: { reason: string; count: number }[]
+  tables: { id: string; name: string; area: string | null; reservations: number; guests: number; minutes: number; occupancy: number | null }[]
+  staff: StaffMetrics
+  customers: { new: number; returning: number; top: { name: string; visits: number }[] }
+}
+
+export type AutomationKind = 'win_back' | 'birthday'
+
+export interface AutomationRule {
+  id: string
+  tenant_id: string
+  kind: AutomationKind
+  enabled: boolean
+  channel: 'whatsapp' | 'email'
+  days: number
+  message: string
+  last_run_at: string | null
+}

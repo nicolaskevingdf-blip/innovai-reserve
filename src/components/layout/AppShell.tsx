@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate, Link } from 'react-router-dom'
 import {
   Bell, CalendarDays, ChevronsUpDown, CreditCard, ExternalLink, LayoutDashboard, ListChecks, LogOut, Menu, Plus,
-  Settings, Users, Armchair, Scissors, BarChart3, Check, UserRound, Sparkles, ListOrdered, LifeBuoy, ShieldCheck, AlertTriangle,
+  Settings, Users, Armchair, Scissors, BarChart3, Check, UserRound, Sparkles, ListOrdered, LifeBuoy, ShieldCheck, AlertTriangle, Zap,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useCurrentTenant } from '@/hooks/useTenant'
@@ -74,7 +74,8 @@ export function AppShell() {
         { to: '/app/profissionais', label: 'Profissionais', icon: UserRound },
       ]
   const secondary = [
-    { to: '/app/modulos/relatorios', label: 'Relatórios', icon: BarChart3, tag: 'Fase 5' },
+    { to: '/app/relatorios', label: 'Relatórios', icon: BarChart3 },
+    { to: '/app/automacoes', label: 'Automações', icon: Zap },
     { to: '/app/notificacoes', label: 'Notificações', icon: Bell, badge: unread },
     { to: '/app/configuracoes', label: 'Configurações', icon: Settings },
     { to: '/app/plano', label: 'Meu plano', icon: CreditCard },

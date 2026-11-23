@@ -193,7 +193,8 @@ export const FEATURES: Record<string, string> = {
   tables_map: 'Mapa de mesas / agenda por profissional',
   whatsapp: 'Automação por WhatsApp',
   reports_advanced: 'Relatórios avançados',
-  ai_insights: 'Insights com IA',
+  automations: 'Automações de relacionamento',
+  ai_insights: 'Assistente de IA',
 }
 
 export const LIMITS: Record<string, string> = {
