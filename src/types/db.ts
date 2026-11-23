@@ -409,3 +409,78 @@ export interface StaffMetrics {
   by_staff: { staff_id: string; name: string; color: string; appointments: number; completed: number; no_shows: number; revenue_cents: number }[]
   by_service: { service_id: string; name: string; appointments: number; completed: number; revenue_cents: number }[]
 }
+
+export interface PlanUsage {
+  plan: { id: string; code: string; name: string; price_cents: number } | null
+  subscription: (Omit<Subscription, 'plan'> & { current_period_start: string | null }) | null
+  subscription_ok: boolean
+  features: Record<string, boolean>
+  limits: Record<string, number | null>
+  usage: { members: number; reservations_month: number; resources: number }
+}
+
+export interface AdminOverview {
+  tenants: number
+  tenants_active: number
+  tenants_suspended: number
+  new_tenants_30d: number
+  mrr_cents: number
+  by_status: Record<string, number>
+  by_plan: { plan: string; count: number }[]
+  by_segment: Record<string, number>
+  trials_ending_7d: number
+  reservations_30d: number
+  online_share_30d: number | null
+  open_tickets: number
+  signups_by_month: { month: string; count: number }[]
+}
+
+export interface AdminTenantRow {
+  id: string
+  name: string
+  slug: string
+  segment: Segment
+  status: TenantStatus
+  city: string | null
+  created_at: string
+  plan_code: string | null
+  plan_name: string | null
+  subscription_status: SubscriptionStatus | null
+  trial_ends_at: string | null
+  current_period_end: string | null
+  owner_email: string | null
+  members: number
+  reservations_30d: number
+  last_reservation_at: string | null
+  open_tickets: number
+  feature_overrides: { features?: Record<string, boolean>; limits?: Record<string, number | null> }
+  custom_domain: string | null
+  internal_notes: string | null
+}
+
+export type TicketStatus = 'open' | 'answered' | 'waiting' | 'closed'
+export type TicketCategory = 'question' | 'bug' | 'billing' | 'upgrade' | 'feature'
+
+export interface SupportTicket {
+  id: string
+  tenant_id: string
+  created_by: string | null
+  subject: string
+  category: TicketCategory
+  status: TicketStatus
+  priority: 'low' | 'normal' | 'high'
+  created_at: string
+  updated_at: string
+  tenant_name?: string
+  messages?: number
+  last_message?: string | null
+}
+
+export interface SupportMessage {
+  id: string
+  ticket_id: string
+  author_id: string | null
+  is_staff: boolean
+  body: string
+  created_at: string
+}

@@ -2,6 +2,8 @@
 
 Plataforma SaaS multiempresa de reservas e agendamentos para restaurantes, barbearias, salões e qualquer negócio que trabalha com horários.
 
+**Fase 4 (SaaS comercial) entregue:** Painel Innovai (`/admin`) com visão geral (MRR, empresas, testes terminando, reservas da plataforma), gestão de empresas (plano, status, assinatura, fim do teste, exceções de funcionalidades e limites, domínio próprio, notas internas), criação de cliente com convite do proprietário, edição de planos e central de suporte; limites e funcionalidades do plano aplicados no banco; ciclo de vida da assinatura (teste → pendente → suspenso); "Meu plano" com consumo; chamados de suporte; webhook de cobrança Stripe pronto.
+
 **Fase 3 (Barbearia e serviços) entregue:** serviços com preço, duração e tempo de preparo; profissionais com foto, especialidade, cor, horário próprio (com intervalo de almoço), folgas/férias e serviços que realizam; agendamento online "escolha o profissional" ou "qualquer profissional" (distribuição equilibrada); agenda do dia em colunas por profissional e "Minha agenda" para quem tem login vinculado; métricas de atendimentos por profissional, serviços mais realizados, receita e ocupação.
 
 **Fase 2 (Restaurante) entregue:** mapa visual do salão com arrastar e soltar, ambientes, mesas com capacidade mínima/máxima e formato, uniões de mesas para grupos, alocação automática por melhor encaixe (com ambiente preferido do cliente), status ao vivo por cor (disponível, reservada, ocupada, chegada aguardada, indisponível), sentar cliente sem reserva e liberar mesa, lista de espera (página pública + painel) e ocupação do salão por mesa.
@@ -45,10 +47,10 @@ Abra http://localhost:5173, crie uma conta e siga o onboarding.
 npm run db:test
 ```
 
-Sobe um Postgres 16 descartável, aplica as migrations e executa **165+ verificações** de isolamento entre empresas, RLS, disponibilidade, capacidade, bloqueios, duplicidade, histórico, notificações além do módulo de restaurante (alocação, uniões, ambiente, remarcação, lista de espera) e do módulo de profissionais, e três **corridas de 15 requisições simultâneas** — pelo último lugar, pela única mesa de 6 e pelo único profissional que faz um serviço (exatamente 1 vence em cada). A mesma suíte (`supabase/tests/rls_and_booking.test.sql`) também roda direto no banco do Supabase:
+Sobe um Postgres 16 descartável, aplica as migrations e executa **200+ verificações** de isolamento entre empresas, RLS, disponibilidade, capacidade, bloqueios, duplicidade, histórico, notificações além do módulo de restaurante (alocação, uniões, ambiente, remarcação, lista de espera) do módulo de profissionais e da camada comercial (planos, limites, assinaturas, painel Innovai, suporte), e três **corridas de 15 requisições simultâneas** — pelo último lugar, pela única mesa de 6 e pelo único profissional que faz um serviço (exatamente 1 vence em cada). A mesma suíte (`supabase/tests/rls_and_booking.test.sql`) também roda direto no banco do Supabase:
 
 ```bash
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -f supabase/tests/rls_and_booking.test.sql -f supabase/tests/restaurant.test.sql -f supabase/tests/staff.test.sql
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -f supabase/tests/rls_and_booking.test.sql -f supabase/tests/restaurant.test.sql -f supabase/tests/staff.test.sql -f supabase/tests/saas.test.sql
 ```
 
 Teste ponta a ponta no navegador (requer Playwright instalado, app e Supabase rodando):
@@ -65,7 +67,11 @@ SUPABASE_URL=http://127.0.0.1:54321 SUPABASE_ANON_KEY=<anon-key> node e2e/restau
 SUPABASE_URL=http://127.0.0.1:54321 SUPABASE_ANON_KEY=<anon-key> node e2e/barbershop.mjs
 ```
 
-`smoke.mjs` cobre: cadastro → onboarding → reserva pública no celular → bloqueio de reserva duplicada → consulta por código + telefone → painel (lista, detalhe, histórico, CRM) → reserva manual → salvar horários → upload de logo → cancelamento online → notificação ao proprietário. `restaurant.mjs` cobre: ambientes → mesas → arrastar layout → união de mesas → ativar alocação por mesa → reserva pública escolhendo a Varanda → mesa V1 atribuída → mapa mostrando “chegada aguardada” → cliente sem reserva ocupando mesa → liberar mesa → lista de espera pública → aviso pelo painel. `barbershop.mjs` cobre: serviços → profissionais (horário próprio, serviços) → ativar agenda por profissional → cliente escolhe o Rafa → "qualquer profissional" no mesmo horário vai para o Léo → horário some quando todos estão ocupados → agenda em colunas → folga remove o profissional do dia → agendamento manual com serviço e profissional → métricas.
+```bash
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres node e2e/saas.mjs
+```
+
+`smoke.mjs` cobre: cadastro → onboarding → reserva pública no celular → bloqueio de reserva duplicada → consulta por código + telefone → painel (lista, detalhe, histórico, CRM) → reserva manual → salvar horários → upload de logo → cancelamento online → notificação ao proprietário. `restaurant.mjs` cobre: ambientes → mesas → arrastar layout → união de mesas → ativar alocação por mesa → reserva pública escolhendo a Varanda → mesa V1 atribuída → mapa mostrando “chegada aguardada” → cliente sem reserva ocupando mesa → liberar mesa → lista de espera pública → aviso pelo painel. `barbershop.mjs` cobre: serviços → profissionais (horário próprio, serviços) → ativar agenda por profissional → cliente escolhe o Rafa → "qualquer profissional" no mesmo horário vai para o Léo → horário some quando todos estão ocupados → agenda em colunas → folga remove o profissional do dia → agendamento manual com serviço e profissional → métricas. `saas.mjs` cobre: operador Innovai → cria empresa no plano Starter com convite → cliente se cadastra e cai direto no painel → modos avançados bloqueados pelo plano → pedido de upgrade vira chamado → Innovai responde e muda para Pro → cliente vê a resposta e as funcionalidades liberadas.
 
 ---
 
@@ -80,7 +86,7 @@ SUPABASE_URL=http://127.0.0.1:54321 SUPABASE_ANON_KEY=<anon-key> node e2e/barber
    ```
 2. **Auth → URL Configuration:** defina `Site URL` com o domínio do app e adicione `https://SEU-DOMINIO/onboarding` e `https://SEU-DOMINIO/nova-senha` em Redirect URLs. Configure um SMTP próprio em Auth → SMTP (o SMTP padrão do Supabase tem limite baixo de envios).
 3. Faça o deploy do frontend (Vercel, Netlify, Cloudflare Pages…) com as variáveis `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` e `VITE_PUBLIC_BASE_URL` (ex.: `https://innovaireserve.com`). Configure *SPA fallback* (todas as rotas → `index.html`); na Vercel isso já está em `vercel.json`.
-4. Para tornar alguém **administrador Innovai** (Fase 4), rode no SQL Editor:
+4. Para tornar alguém **administrador Innovai** (acesso ao `/admin`), rode no SQL Editor:
    ```sql
    insert into public.platform_admins (user_id) select id from auth.users where email = 'voce@innovai.com';
    ```
@@ -97,7 +103,8 @@ Nada abaixo é simulado. Sem configuração, as mensagens ficam visíveis na tel
 | WhatsApp automático | Código pronto (Cloud API da Meta) | Número no WhatsApp Business Platform, `WHATSAPP_TOKEN` e `WHATSAPP_PHONE_NUMBER_ID`, e **templates aprovados** na Meta com os nomes: `reservation_received`, `reservation_confirmed`, `reservation_cancelled`, `reservation_rescheduled`, `reminder`, `review_request`, `waitlist_available` (1 parâmetro de corpo). Sem isso, o botão “Avisar” da lista de espera abre o WhatsApp com a mensagem pronta |
 | Agendamento do despachante | — | Extensões `pg_cron` e `pg_net` ativas + o job abaixo |
 | Push notifications | Planejado | PWA + Web Push (VAPID) |
-| Cobrança recorrente (Fase 4) | Tabela `subscriptions` pronta | Stripe, Asaas ou Pagar.me + webhook |
+| Cobrança recorrente | Webhook pronto em `supabase/functions/billing-webhook` (Stripe) | Conta Stripe, preços com `metadata.plan_code`, assinaturas com `metadata.tenant_id`, secrets `STRIPE_SECRET_KEY` e `STRIPE_WEBHOOK_SECRET` (passo a passo no topo do arquivo). Asaas/Pagar.me exigem um webhook equivalente |
+| Ciclo de vida das assinaturas | Função `refresh_subscription_states()` pronta | Agendar diariamente com `pg_cron` (abaixo) |
 | Rate limiting na borda | Recomendado | Cloudflare/WAF na frente das RPCs públicas (o banco já limita reservas ativas por telefone) |
 
 Deploy do despachante:
@@ -122,6 +129,12 @@ $$);
 ```
 
 Falhas são reprocessadas com *backoff* exponencial (até 5 tentativas).
+
+Ciclo de vida das assinaturas (teste vencido → pendente; pendente há mais de 7 dias → suspenso), diariamente:
+
+```sql
+select cron.schedule('innovai-subscriptions', '17 6 * * *', $$ select public.refresh_subscription_states() $$);
+```
 
 ---
 

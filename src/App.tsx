@@ -26,6 +26,12 @@ const Floor = lazy(() => import('./pages/app/Floor'))
 const Waitlist = lazy(() => import('./pages/app/Waitlist'))
 const Services = lazy(() => import('./pages/app/Services'))
 const StaffPage = lazy(() => import('./pages/app/Staff'))
+const Support = lazy(() => import('./pages/app/Support'))
+const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'))
+const AdminOverview = lazy(() => import('./pages/admin/Overview'))
+const AdminTenants = lazy(() => import('./pages/admin/Tenants'))
+const AdminPlans = lazy(() => import('./pages/admin/Plans'))
+const AdminSupport = lazy(() => import('./pages/admin/SupportInbox'))
 const PublicBooking = lazy(() => import('./pages/public/PublicBooking'))
 const ReservationLookup = lazy(() => import('./pages/public/ReservationLookup'))
 const NotFound = lazy(() => import('./pages/NotFound'))
@@ -75,7 +81,14 @@ export function App() {
           <Route path="lista-espera" element={<Waitlist />} />
           <Route path="servicos" element={<Services />} />
           <Route path="profissionais" element={<StaffPage />} />
+          <Route path="suporte" element={<Support />} />
           <Route path="modulos/:module" element={<Roadmap />} />
+        </Route>
+        <Route path="/admin" element={<RequireAuth><AdminLayout /></RequireAuth>}>
+          <Route index element={<AdminOverview />} />
+          <Route path="empresas" element={<AdminTenants />} />
+          <Route path="planos" element={<AdminPlans />} />
+          <Route path="suporte" element={<AdminSupport />} />
         </Route>
         <Route path="/reserva" element={<ReservationLookup />} />
         <Route path="/reserva/:code" element={<ReservationLookup />} />

@@ -4,6 +4,7 @@ import { ArrowLeft, Check, Loader2, Scissors, Sparkles, Store, UtensilsCrossed, 
 import { createTenant, isSlugAvailable } from '@/api/tenant'
 import { useTenant } from '@/hooks/useTenant'
 import { useAuth } from '@/hooks/useAuth'
+import { useIsPlatformAdmin } from '@/api/saas'
 import { Logo } from '@/components/layout/Logo'
 import { Button, Field, Input, Select } from '@/components/ui/ui'
 import { SEGMENT } from '@/lib/constants'
@@ -25,6 +26,7 @@ export default function Onboarding() {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
   const { memberships, refresh, switchTenant } = useTenant()
+  const { data: isAdmin } = useIsPlatformAdmin()
   const [step, setStep] = useState(1)
   const [segment, setSegment] = useState<Segment>('restaurant')
   const [name, setName] = useState('')
@@ -66,6 +68,7 @@ export default function Onboarding() {
       <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-6">
         <Logo />
         <div className="flex items-center gap-3 text-xs text-ink-400">
+          {isAdmin && <button onClick={() => navigate('/admin')} className="font-semibold text-lime hover:underline">Painel Innovai</button>}
           {memberships.length > 0 && <button onClick={() => navigate('/app')} className="hover:text-ink-100">Voltar ao painel</button>}
           <button onClick={() => void signOut()} className="hover:text-ink-100">Sair ({user?.email})</button>
         </div>

@@ -27,6 +27,9 @@ export function useTenantRealtime(tenantId: string | undefined, onNewNotificatio
       .on('postgres_changes', { event: '*', schema: 'public', table: 'waitlist_entries', filter: `tenant_id=eq.${tenantId}` }, () => {
         void qc.invalidateQueries({ queryKey: ['waitlist'] })
       })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'support_messages' }, () => {
+        void qc.invalidateQueries({ queryKey: ['support'] })
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staff', filter: `tenant_id=eq.${tenantId}` }, () => {
         void qc.invalidateQueries({ queryKey: ['staff'] })
       })

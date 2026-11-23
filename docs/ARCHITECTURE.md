@@ -50,6 +50,7 @@
 | Salão (Fase 2) | `areas`, `dining_tables`, `table_combinations` |
 | Profissionais (Fase 3) | `staff`, `staff_hours`, `services`, `service_staff` |
 | Operação | `notifications` (inbox interna + outbox externa), `audit_logs` |
+| Comercial (Fase 4) | `plans`, `subscriptions`, `platform_admins`, `support_tickets`, `support_messages` |
 
 Todos os instantes são `timestamptz` (UTC). Cada empresa tem `timezone` (IANA) e toda conversão de “dia/hora local” acontece com esse fuso, no banco (`AT TIME ZONE`) e no frontend (`date-fns-tz`) — nunca com o fuso do navegador.
 
@@ -98,6 +99,16 @@ Ativada em *Regras de reserva → Por profissional* (`allocation_mode = 'staff'`
 - **Agenda individual:** visão do dia em colunas por profissional (turnos destacados, preparo visível) e filtro por profissional; quem tem login vinculado ao cadastro abre direto em “Minha agenda”.
 - **Métricas** (`staff_service_metrics`): atendimentos, concluídos, faltas e receita por profissional; ranking de serviços; ocupação = minutos atendidos ÷ minutos de trabalho dos profissionais.
 
+### SaaS comercial (Fase 4)
+- **Planos** (`plans.limits` / `plans.features`) e **exceções por cliente** (`tenants.feature_overrides`) formam os limites e funcionalidades efetivos (`tenant_limits`, `tenant_features`).
+- **Aplicação no banco** (não só na tela): usuários + convites (`max_members`), mesas + profissionais (`max_resources`), reservas criadas no mês no fuso do estabelecimento (`max_reservations_month`), modos por mesa/profissional (`tables_map`) e WhatsApp (`whatsapp`). Erros com `hint` `PLAN_LIMIT` ou `FEATURE_LOCKED`. Administradores Innovai e jobs do sistema não são bloqueados.
+- **Teste:** todo estabelecimento novo começa com 14 dias do plano Pro. Quando a Innovai cria a empresa, o plano vendido é mantido durante o teste.
+- **Ciclo de vida:** `subscription_ok` = ativa, em teste dentro do prazo, ou pendente há menos de 7 dias. Fora disso, reservas online param. `refresh_subscription_states()` (diário) passa testes vencidos para *pendente* e pendências antigas para *suspenso* — o estabelecimento fica somente leitura e sai do ar publicamente. Reativar a assinatura reabre tudo.
+- **Campos comerciais** (plano, status, exceções, domínio, notas internas) só mudam pela Innovai (`tenants_guard`).
+- **Painel Innovai:** RPCs `admin_*` exigem `platform_admins`; toda ação administrativa vai para `audit_logs`.
+- **Suporte:** `support_tickets` + `support_messages` com RLS por estabelecimento; só a equipe Innovai publica como “suporte” (`is_staff` é definido pelo banco). Resposta gera notificação em tempo real.
+- **Cobrança:** `billing-webhook` sincroniza assinaturas do Stripe (status, período, plano por `metadata.plan_code`) e reabre estabelecimentos após pagamento.
+
 ### Ciclo de vida
 `pending → confirmed → in_progress → completed`, com `cancelled` e `no_show`. Cada transição grava carimbo de tempo (`confirmed_at`, `checked_in_at`…) e um evento em `reservation_events` com autor (`staff`/`customer`/`system`) e diff dos campos. Remarcar preserva a duração. Excluir é restrito a gerentes (recomendado cancelar).
 
@@ -129,7 +140,7 @@ Ativada em *Regras de reserva → Por profissional* (`allocation_mode = 'staff'`
 | --- | --- | --- |
 | **2 — Restaurante** ✅ | Editor visual do salão, ambientes, status por cor, uniões de mesas, alocação automática, lista de espera | Entregue |
 | **3 — Barbearia** ✅ | Profissionais, serviços, agenda individual, “qualquer profissional” | Entregue |
-| **4 — SaaS comercial** | Painel Innovai, planos/limites, cobrança, domínios próprios | `plans` (limits/features jsonb), `subscriptions`, `platform_admins`, RLS de admin |
+| **4 — SaaS comercial** ✅ | Painel Innovai, planos/limites, assinaturas, suporte, cobrança | Entregue (cobrança automática depende da conta Stripe) |
 | **5 — Inteligência** | Lembretes WhatsApp, relatórios avançados, IA | Outbox + despachante; `dashboard_metrics`, `customer_insights` |
 
 ### Camada de IA (Fase 5) — desenho
@@ -146,3 +157,5 @@ Para responder “Quais foram os horários mais movimentados esta semana?” **s
 - O mapa do salão usa uma área lógica de 1000×620; em celulares ele rola horizontalmente.
 - Convites de equipe não enviam e-mail automaticamente (a pessoa entra com o e-mail convidado).
 - O slug do link público é fixo após a criação (proteção de links divulgados).
+- Domínio próprio é registrado pela Innovai; o apontamento DNS e o roteamento por domínio no provedor de hospedagem precisam ser configurados fora da plataforma.
+- Os limites de plano são verificados a cada gravação; reduzir um plano não apaga dados que já excedem o novo limite (apenas impede novos cadastros).

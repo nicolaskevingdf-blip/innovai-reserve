@@ -9,6 +9,7 @@ import {
 import { publicBookingUrl } from '@/components/layout/AppShell'
 import { useTables } from '@/api/floor'
 import { useStaff } from '@/api/staff'
+import { usePlanUsage } from '@/api/saas'
 import { Link } from 'react-router-dom'
 import { Avatar, Button, Card, Field, Input, PageLoader, Select, Switch, Textarea } from '@/components/ui/ui'
 import { ConfirmDialog } from '@/components/ui/Sheet'
@@ -312,6 +313,8 @@ function RulesTab() {
   const [f, setF] = useState<BookingSettings | null>(null)
   const { data: tables = [] } = useTables(tenant.id)
   const { data: staffList = [] } = useStaff(tenant.id)
+  const { data: usage } = usePlanUsage(tenant.id)
+  const advanced = usage?.features.tables_map ?? true
   useEffect(() => { if (data) setF(data) }, [data])
   if (!f) return <PageLoader />
   const set = <K extends keyof BookingSettings>(k: K, v: BookingSettings[K]) => setF((s) => (s ? { ...s, [k]: v } : s))
@@ -344,8 +347,8 @@ function RulesTab() {
         <div className="grid gap-3 md:grid-cols-3">
           {([
             { mode: 'capacity', title: 'Por capacidade', desc: 'Limite de reservas e/ou pessoas simultâneas. Ideal para começar.', ok: true, hint: '' },
-            { mode: 'tables', title: 'Por mesa', desc: 'Cada reserva recebe a menor mesa (ou união) que comporta o grupo, no ambiente preferido.', ok: activeTables > 0, hint: `${activeTables} mesa(s) ativa(s)`, link: '/app/mesas', linkLabel: 'Gerenciar salão' },
-            { mode: 'staff', title: 'Por profissional', desc: 'Horários calculados por serviço, duração, preparo e agenda de cada profissional.', ok: activeStaff > 0, hint: `${activeStaff} profissional(is) ativo(s)`, link: '/app/profissionais', linkLabel: 'Gerenciar profissionais' },
+            { mode: 'tables', title: 'Por mesa', desc: 'Cada reserva recebe a menor mesa (ou união) que comporta o grupo, no ambiente preferido.', ok: activeTables > 0 && advanced, hint: advanced ? `${activeTables} mesa(s) ativa(s)` : 'Disponível a partir do plano Pro', link: '/app/mesas', linkLabel: 'Gerenciar salão' },
+            { mode: 'staff', title: 'Por profissional', desc: 'Horários calculados por serviço, duração, preparo e agenda de cada profissional.', ok: activeStaff > 0 && advanced, hint: advanced ? `${activeStaff} profissional(is) ativo(s)` : 'Disponível a partir do plano Pro', link: '/app/profissionais', linkLabel: 'Gerenciar profissionais' },
           ] as const).map((o) => (
             <button key={o.mode} type="button" disabled={!o.ok && f.allocation_mode !== o.mode} onClick={() => set('allocation_mode', o.mode)}
               className={cn('flex flex-col rounded-2xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-50',
@@ -356,7 +359,7 @@ function RulesTab() {
               </span>
               <span className="mt-1.5 text-xs leading-relaxed text-ink-400">{o.desc}</span>
               {'link' in o && (
-                <span className="mt-3 text-[11px] text-ink-500">{o.ok ? o.hint : 'Cadastre antes de ativar'} · <Link to={o.link} onClick={(e) => e.stopPropagation()} className="text-lime hover:underline">{o.linkLabel}</Link></span>
+                <span className="mt-3 text-[11px] text-ink-500">{o.ok || !advanced ? o.hint : 'Cadastre antes de ativar'} · <Link to={o.link} onClick={(e) => e.stopPropagation()} className="text-lime hover:underline">{o.linkLabel}</Link></span>
               )}
             </button>
           ))}
@@ -509,6 +512,8 @@ function NotificationsTab() {
   const toast = useToast()
   const [f, setF] = useState<NotificationSettings | null>(null)
   useEffect(() => { if (data) setF(data) }, [data])
+  const { data: usage } = usePlanUsage(tenant.id)
+  const waAllowed = usage?.features.whatsapp ?? true
   if (!f) return <PageLoader />
   const set = <K extends keyof NotificationSettings>(k: K, v: NotificationSettings[K]) => setF((s) => (s ? { ...s, [k]: v } : s))
 
@@ -528,7 +533,7 @@ function NotificationsTab() {
             <div key={c.key} className="rounded-2xl border border-ink-700 bg-ink-850 p-4">
               <div className="flex items-start gap-3">
                 <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-ink-800 text-lime"><c.icon className="h-4 w-4" /></div>
-                <div className="flex-1"><Switch checked={f[c.key]} onChange={(v) => set(c.key, v)} disabled={c.key === 'push_enabled'} label={c.title} description={c.desc} /></div>
+                <div className="flex-1"><Switch checked={f[c.key]} onChange={(v) => set(c.key, v)} disabled={c.key === 'push_enabled' || (c.key === 'whatsapp_enabled' && !waAllowed && !f.whatsapp_enabled)} label={c.title + (c.key === 'whatsapp_enabled' && !waAllowed ? ' · plano Pro' : '')} description={c.desc} /></div>
               </div>
               <p className="ml-12 mt-2 flex items-start gap-1.5 text-[11px] text-sky-300/80"><Info className="mt-0.5 h-3 w-3 shrink-0" /> {c.setup}</p>
             </div>

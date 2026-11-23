@@ -2,13 +2,15 @@ import { createContext, useCallback, useContext, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Bell, CalendarDays, ChevronsUpDown, CreditCard, ExternalLink, LayoutDashboard, ListChecks, LogOut, Menu, Plus,
-  Settings, Users, Armchair, Scissors, BarChart3, Check, UserRound, Sparkles, ListOrdered,
+  Settings, Users, Armchair, Scissors, BarChart3, Check, UserRound, Sparkles, ListOrdered, LifeBuoy, ShieldCheck, AlertTriangle,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useCurrentTenant } from '@/hooks/useTenant'
 import { useTenantRealtime } from '@/hooks/useRealtime'
 import { useUnreadCount } from '@/api/notifications'
 import { useWaitlistCount } from '@/api/waitlist'
+import { useIsPlatformAdmin, usePlanUsage } from '@/api/saas'
+import { Link } from 'react-router-dom'
 import { todayKey } from '@/lib/datetime'
 import { useToast } from '@/components/ui/Toast'
 import { Sheet } from '@/components/ui/Sheet'
@@ -37,6 +39,19 @@ export function AppShell() {
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const { data: unread = 0 } = useUnreadCount(tenant.id)
   const { data: waiting = 0 } = useWaitlistCount(tenant.id, todayKey(tenant.timezone))
+  const { data: isAdmin } = useIsPlatformAdmin()
+  const { data: usage } = usePlanUsage(tenant.id)
+  const sub = usage?.subscription
+  const trialDays = sub?.status === 'trialing' && sub.trial_ends_at ? Math.ceil((+new Date(sub.trial_ends_at) - Date.now()) / 864e5) : null
+  const banner = tenant.status !== 'active'
+    ? { tone: 'danger', text: 'Estabelecimento suspenso: o painel está em modo somente leitura e a página pública saiu do ar.' }
+    : usage && !usage.subscription_ok
+      ? { tone: 'danger', text: sub?.status === 'trialing' ? 'Seu período de teste terminou. Reservas online estão pausadas.' : 'Há uma pendência na assinatura. Reservas online estão pausadas.' }
+      : sub?.status === 'past_due'
+        ? { tone: 'warn', text: 'Pagamento pendente. Regularize para evitar a suspensão.' }
+        : trialDays != null && trialDays <= 5
+          ? { tone: 'info', text: `Seu teste do plano ${usage?.plan?.name ?? ''} termina em ${trialDays} dia(s).` }
+          : null
 
   const onRealtimeNotification = useCallback((title: string, body: string) => toast('info', title, body), [toast])
   useTenantRealtime(tenant.id, onRealtimeNotification)
@@ -64,6 +79,7 @@ export function AppShell() {
     { to: '/app/notificacoes', label: 'Notificações', icon: Bell, badge: unread },
     { to: '/app/configuracoes', label: 'Configurações', icon: Settings },
     { to: '/app/plano', label: 'Meu plano', icon: CreditCard },
+    { to: '/app/suporte', label: 'Suporte', icon: LifeBuoy },
   ]
 
   const NavItem = ({ to, label, icon: Icon, tag, badge, onClick }: { to: string; label: string; icon: typeof Bell; tag?: string; badge?: number; onClick?: () => void }) => (
@@ -156,6 +172,11 @@ export function AppShell() {
             </div>
           </nav>
           <div className="space-y-2 border-t border-ink-800 p-3">
+            {isAdmin && (
+              <Link to="/admin" className="flex items-center gap-2 rounded-xl border border-lime/30 bg-lime/[0.06] px-3 py-2 text-xs font-semibold text-lime hover:bg-lime/10">
+                <ShieldCheck className="h-3.5 w-3.5" /> Painel Innovai
+              </Link>
+            )}
             <a href={publicUrl} target="_blank" rel="noreferrer"
               className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-ink-300 transition hover:bg-ink-850 hover:text-lime">
               <ExternalLink className="h-3.5 w-3.5" /> Ver página de reservas
@@ -189,6 +210,14 @@ export function AppShell() {
         </header>
 
         <main className="lg:pl-[264px]">
+          {banner && (
+            <div className={cn('flex items-center gap-2 px-4 py-2.5 text-sm md:px-8',
+              banner.tone === 'danger' ? 'bg-rose-500/15 text-rose-100' : banner.tone === 'warn' ? 'bg-amber-400/15 text-amber-100' : 'bg-sky-400/10 text-sky-100')}>
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span className="flex-1">{banner.text}</span>
+              <Link to="/app/plano" className="shrink-0 font-semibold underline underline-offset-2">Ver plano</Link>
+            </div>
+          )}
           <div key={loc.pathname} className="mx-auto max-w-[1400px] px-4 pb-28 pt-5 animate-fade-up md:px-8 md:pt-8 lg:pb-12">
             <Outlet />
           </div>

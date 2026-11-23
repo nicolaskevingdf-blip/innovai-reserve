@@ -24,11 +24,11 @@ export default function Signup() {
     setLoading(true); setError(null)
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(), password,
-      options: { data: { full_name: name.trim() }, emailRedirectTo: `${window.location.origin}/onboarding` },
+      options: { data: { full_name: name.trim() }, emailRedirectTo: `${window.location.origin}/app` },
     })
     setLoading(false)
     if (error) return setError(errorMessage(error))
-    if (data.session) navigate('/onboarding', { replace: true })
+    if (data.session) navigate('/app', { replace: true }) // invited people go straight to their panel
     else setSent(true) // e-mail confirmation enabled in Supabase Auth
   }
 
