@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand-rgb: 198 244 50;
+  color-scheme: dark;
+}
+
+@layer base {
+  html { -webkit-tap-highlight-color: transparent; }
+  body {
+    @apply bg-ink-950 text-ink-100 font-sans antialiased;
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+  }
+  h1, h2, h3, h4 { @apply font-display tracking-tight; }
+  ::selection { background: rgb(198 244 50 / 0.3); }
+  input[type='date']::-webkit-calendar-picker-indicator,
+  input[type='time']::-webkit-calendar-picker-indicator { filter: invert(0.8); cursor: pointer; }
+  * { scrollbar-width: thin; scrollbar-color: #2c2c33 transparent; }
+}
+
+@layer components {
+  .card { @apply rounded-2xl border border-ink-700/70 bg-ink-900/80 shadow-card; }
+  .label { @apply mb-1.5 block text-xs font-medium uppercase tracking-wider text-ink-300; }
+  .field {
+    @apply h-11 w-full rounded-xl border border-ink-600 bg-ink-850 px-3.5 text-sm text-ink-100 placeholder:text-ink-400
+           outline-none transition focus:border-lime/60 focus:ring-4 focus:ring-lime/10 disabled:opacity-50;
+  }
+  .chip { @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium; }
+  .skeleton { @apply relative overflow-hidden rounded-lg bg-ink-800; }
+  .skeleton::after {
+    content: ''; @apply absolute inset-0 -translate-x-full;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent);
+    animation: shimmer 1.4s infinite;
+  }
+  .grid-bg {
+    background-image: linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+  .pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0.5rem); }
+}
