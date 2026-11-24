@@ -83,6 +83,8 @@ DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres node e2e/in
 
 ## Deploy em produção
 
+> **Ambiente atual:** o banco de produção já existe (projeto Supabase `innovai-reserve`, ref `uscnkfudtmfdaqzhuhjw`, São Paulo) com todas as migrations aplicadas e os jobs `innovai-subscriptions` e `innovai-automations` agendados. A URL e a chave pública estão em `.env.production`, então basta importar o repositório na Vercel (sem variáveis) e seguir o passo 2 abaixo com o domínio gerado.
+
 1. Crie um projeto no Supabase e aplique as migrations:
    ```bash
    npx supabase link --project-ref <ref>
